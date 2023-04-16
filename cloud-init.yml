@@ -1,0 +1,78 @@
+#cloud-config
+repo_update: true
+repo_upgrade: all
+package_upgrade: true
+packages:
+  - coreutils
+  - ca-certificates 
+  - curl
+  - gnupg
+  - apt-transport-https
+  - curl
+  - software-properties-common
+
+write_files:
+ - path: /etc/gitlab-runner/config.toml.tmpl
+   content: |
+        concurrent = 5
+        check_interval = 0
+        shutdown_timeout = 0
+
+        [session_server]
+          session_timeout = 3600
+
+        [[runners]]
+          name = '${runner_name}'
+          url = '${runner_url}' 
+          token = '${runner_token}'
+          token_obtained_at = 2023-04-06T21:15:00Z
+          token_expires_at = 0001-01-01T00:00:00Z
+          executor = "docker+machine"
+          limit = 15
+          [runners.docker]
+            image = "python:3.10"
+            privileged = true
+            disable_cache = true
+          [runners.cache]
+            Type = "s3"
+            Shared = true
+            [runners.cache.s3]
+              ServerAddress = "s3.amazonaws.com"
+              AccessKey = '${aws_access_key}'
+              SecretKey = '${aws_secret_access_key}'
+              BucketName = '${runner_bucket}'
+              BucketLocation = '${aws_region}'
+          [runners.machine]
+            IdleCount = 1
+            IdleTime = 1800
+            MaxBuilds = 10
+            MachineDriver = "amazonec2"
+            MachineName = "gitlab-docker-machine-%s"
+            MachineOptions = [
+              "amazonec2-access-key='${aws_access_key}'",
+              "amazonec2-secret-key='${aws_access_key}'",
+              "amazonec2-region='${aws_region}'",
+              "amazonec2-vpc-id='${aws_vpc_id}'",
+              "amazonec2-subnet-id=subnet-'${aws_subnet_id}'",
+              "amazonec2-use-private-address=true",
+              "amazonec2-tags=runner-manager-name,gitlab-aws-autoscaler,gitlab,true,gitlab-runner-autoscale,true",
+              "amazonec2-security-group='${aws_sg}'",
+              "amazonec2-request-spot-instance=true",
+              "amazonec2-instance-type=t3.xlarge",
+              "engine-install-url='https://releases.rancher.com/install-docker/20.10.21.sh'"
+            ]
+
+runcmd:
+  - dpkg --print-architecture
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+  - add-apt-repository "deb [arch=$(dpkg --print-architecture)] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+  - apt-get update -y
+  - apt-get install -y docker-ce docker-ce-cli containerd.io
+  - systemctl start docker
+  - systemctl enable docker
+  - apt-get update
+  - curl -O "https://gitlab-docker-machine-downloads.s3.amazonaws.com/v0.16.2-gitlab.20/docker-machine-Linux-x86_64"
+  - mv docker-machine-Linux-x86_64 /usr/local/bin/docker-machine
+  - chmod +x /usr/local/bin/docker-machine
+  - curl -L "https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh" | bash
+  - apt-get install -y gitlab-runner
